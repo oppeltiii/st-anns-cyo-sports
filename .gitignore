@@ -1,6 +1,9 @@
 node_modules/
 .wrangler/
 .dev.vars
-*.bak_*
+*.bak*
 *.corrupt_snapshot
+*.log
+fix_*.js
+patch_*.js
 .DS_Store

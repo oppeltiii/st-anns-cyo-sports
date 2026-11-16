@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "st-anns-cyo-sports",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-16",
+  "assets": {
+    "directory": ".",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "CYO_STATE",
+      "id": "ca5647ed10ec42d2987ffcbe8868a369"
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "stanns.opp-solutions.com",
+      "custom_domain": true
+    }
+  ]
+}

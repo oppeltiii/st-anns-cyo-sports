@@ -1,0 +1,8 @@
+*.bak*
+.wrangler
+node_modules
+server.log
+run.sh
+wrangler.jsonc
+README.md
+worker.js
