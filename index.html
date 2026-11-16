@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b0b0d">
+  <meta name="description" content="St. Ann's Saints CYO Sports administration and family portal">
+  <title>St. Ann's Saints CYO Sports</title>
+  <link rel="stylesheet" href="styles.css?v=1794809842">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <div class="login-screen" id="loginScreen" hidden>
+    <div class="login-card">
+      <div class="brand" style="border:0;padding:0;margin-bottom:18px;justify-content:center">
+        <div class="crest" aria-hidden="true"><span>⚜</span></div>
+        <div><strong style="color:#fff">ST. ANN'S</strong><small>SAINTS CYO SPORTS</small></div>
+      </div>
+      <h2>Portal Sign In</h2>
+      <p class="card-subtitle" style="text-align:center;margin-bottom:18px">Sign in with your Master Admin or Coach credentials.</p>
+      <form id="loginForm">
+        <div class="field" style="margin-bottom:12px">
+          <label for="loginUser">Username</label>
+          <input id="loginUser" name="username" required autocomplete="username" placeholder="admin or coach username">
+        </div>
+        <div class="field" style="margin-bottom:16px">
+          <label for="loginPass">Password</label>
+          <input id="loginPass" name="password" type="password" required autocomplete="current-password" placeholder="••••••••">
+        </div>
+        <div id="loginError" class="login-error" hidden></div>
+        <button class="btn gold" style="width:100%;padding:12px;font-size:13px">Sign In</button>
+      </form>
+      <div class="login-hint">
+        <small>Default Master Admin: <b>admin</b> / <b>Saints2026!</b></small>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-shell" id="appShell">
+    <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+      <div class="brand">
+        <div class="crest" aria-hidden="true"><span>⚜</span></div>
+        <div><strong>ST. ANN'S</strong><small>SAINTS CYO SPORTS</small></div>
+      </div>
+      <nav id="nav">
+        <button class="nav-item active" data-view="dashboard"><span>◈</span>Overview</button>
+        <button class="nav-item" data-view="sports"><span>◆</span>Sports & seasons</button>
+        <button class="nav-item" data-view="registrations"><span>◎</span>Registrations</button>
+        <button class="nav-item" data-view="coaches"><span>◉</span>Coaches</button>
+        <button class="nav-item" data-view="teams"><span>❖</span>Teams</button>
+        <button class="nav-item" data-view="schedule"><span>▦</span>Schedule</button>
+        <button class="nav-item" data-view="volunteers"><span>♙</span>Volunteers</button>
+        <button class="nav-item" data-view="communications"><span>✦</span>Communications</button>
+        <button class="nav-item" data-view="reports"><span>▥</span>Reports</button>
+        <button class="nav-item" data-view="portal"><span>⌂</span>Family portal</button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="season-chip"><i></i><span>ACTIVE SEASON<strong>Basketball · 2026–2027</strong></span></div>
+        <button class="nav-item" data-view="settings" id="navSettings"><span>⚙</span>Settings</button>
+        <button class="nav-item" id="logoutBtn" style="color:#e58b86"><span>⎋</span>Sign out</button>
+      </div>
+    </aside>
+
+    <div class="main-wrap">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open navigation">☰</button>
+        <div class="season-select-wrap">
+          <label for="seasonSelect">Season</label>
+          <select id="seasonSelect" aria-label="Select season"></select>
+        </div>
+        <div class="top-actions">
+          <span class="role-pill" id="activeRoleBadge">Master Admin</span>
+          <button class="icon-btn" id="globalSearchBtn" aria-label="Search">⌕</button>
+          <button class="icon-btn notification-btn" id="notificationBtn" aria-label="Notifications">♢<b id="noticeCount">0</b></button>
+          <button class="avatar" id="profileBtn" aria-label="User profile">AO</button>
+        </div>
+      </header>
+
+      <main id="main" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-head"><div><span class="eyebrow" id="modalEyebrow">SAINTS ADMIN</span><h2 id="modalTitle">Add record</h2></div><button class="icon-btn" id="modalClose" aria-label="Close">×</button></div>
+      <div id="modalBody"></div>
+    </section>
+  </div>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+  <input type="file" id="importFile" accept="application/json" hidden>
+  <script src="app.js?v=1794809842"></script>
+</body>
+</html>
