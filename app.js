@@ -25,8 +25,8 @@ const seed = {
   defaultRegFee: 100,
   users: [
     {id:'u-master', username:'admin', password:'Saints2026!', name:'Master Admin', role:'master', coachName:'', teamIds:[], permissions:['dashboard','sports','registrations','teams','coaches','schedule','volunteers','communications','reports','portal','settings']},
-    {id:'u-garcia', username:'dgarcia', password:'Saints2026!', name:'Daniel Garcia', role:'coach', coachName:'Daniel Garcia', teamIds:['t1'], permissions:['dashboard','teams','schedule']},
-    {id:'u-martinez', username:'emartinez', password:'Saints2026!', name:'Elena Martinez', role:'coach', coachName:'Elena Martinez', teamIds:['t2'], permissions:['dashboard','teams','schedule']}
+    {id:'u-garcia', username:'dgarcia', password:'Saints2026!', name:'Daniel Garcia', role:'coach', coachName:'Daniel Garcia', teamIds:['t1'], permissions: ['dashboard', 'teams', 'schedule', 'communications']},
+    {id:'u-martinez', username:'emartinez', password:'Saints2026!', name:'Elena Martinez', role:'coach', coachName:'Elena Martinez', teamIds:['t2'], permissions: ['dashboard', 'teams', 'schedule', 'communications']}
   ],
   sports:[
     {id:'basketball',name:'Basketball',symbol:'◉',season:'Winter',status:'Active',seasonId:'basketball-2026-27',year:'2026–2027',divisions:['Tot','Tiny','Pee Wee','Mite','Cub','Junior']},
@@ -94,6 +94,7 @@ function normalizePlayerFields(r, teamsList) {
   if (team && team.division) {
     item.division = team.division;
   }
+  item.phone = item.phone ?? '';
   item.jersey = item.jersey ?? '';
   item.uniformSize = item.uniformSize || 'YS';
   item.uniformQty = Number(item.uniformQty) || 1;
@@ -112,7 +113,7 @@ function normalizeState(rawObj) {
   }
   merged.users = merged.users.map(u => {
     if (u.role === 'coach') {
-      return {...u, permissions: ['dashboard', 'teams', 'schedule']};
+      return {...u, permissions: ['dashboard', 'teams', 'schedule', 'communications']};
     }
     return u;
   });
@@ -1813,6 +1814,9 @@ function showCsvImportModal(){
       let lnIdx = -1;
       let fullIdx = -1;
       let emIdx = -1;
+      let cellIdx = -1;
+      let homeIdx = -1;
+      let phoneIdx = -1;
 
       const hasHeader = firstCols.some(c => c.includes('first') || c.includes('last') || c.includes('email') || c === 'row' || c === '#' || c.includes('name') || c.includes('player') || c.includes('athlete'));
       if (hasHeader) {
@@ -1823,6 +1827,9 @@ function showCsvImportModal(){
           fullIdx = firstCols.findIndex(c => c.includes('name') || c.includes('player') || c.includes('athlete'));
         }
         emIdx = firstCols.findIndex(c => c.includes('email') || c.includes('mail'));
+        cellIdx = firstCols.findIndex(c => (c.includes('cell') || c.includes('mobile') || c.includes('sms')) && !c.includes('coach'));
+        homeIdx = firstCols.findIndex(c => c.includes('home') && c.includes('phone') && !c.includes('coach'));
+        phoneIdx = firstCols.findIndex(c => (c.includes('phone') || c.includes('telephone')) && !c.includes('coach') && !c.includes('cell') && !c.includes('home'));
       }
 
       let addedCount = 0;
@@ -1832,6 +1839,16 @@ function showCsvImportModal(){
 
         let fullName = '';
         let email = '';
+        let phone = '';
+        const rawPh = [cellIdx, homeIdx, phoneIdx]
+          .map(idx => (idx !== -1 && cols[idx]) ? String(cols[idx]).trim() : '')
+          .find(v => v.replace(/\D/g, '').length >= 7) || '';
+        if (rawPh) {
+          const d = rawPh.replace(/\D/g, '');
+          phone = d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`
+                : (d.length === 11 && d.startsWith('1')) ? `(${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7)}`
+                : rawPh;
+        }
 
         if (fullIdx !== -1) {
           fullName = (cols[fullIdx] || '').trim();
@@ -1862,6 +1879,7 @@ function showCsvImportModal(){
           sport: 'Basketball',
           guardian: '',
           email: email,
+          phone: phone,
           status: 'Payment due',
           paid: false,
           teamId: teamId,
@@ -1887,6 +1905,7 @@ function showTeamForm(existing = null){
         <div class="field"><label>Team Name</label><input name="name" value="${esc(t.name)}" required placeholder="Example: Mite Gold"></div>
         <div class="field"><label>Sport</label><select name="sportId">${state.sports.map(s=>`<option value="${s.id}" ${t.sportId===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>
         <div class="field"><label>Division (Default for Roster)</label><select name="division">${activeSport().divisions.map(x=>`<option ${t.division===x?'selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="field"><label>Coach Phone</label><input name="coachPhone" type="tel" value="${esc(t.coachPhone || '')}" placeholder="(210) 555-0199"></div>
         <div class="field"><label>Assistant Coach</label><input name="assistant" value="${esc(t.assistant)}"></div>
         <div class="field"><label>Roster Capacity</label><input type="number" min="5" max="25" name="capacity" value="${t.capacity}"></div>
         <div class="field"><label>Practice Day</label><select name="practiceDay">${DAYS.map(d=>`<option value="${d}" ${t.practiceDay===d?'selected':''}>${d}</option>`).join('')}</select></div>
@@ -2072,7 +2091,7 @@ function showUserForm(existing = null){
         role: 'coach',
         coachName: name,
         teamIds,
-        permissions: ['dashboard', 'teams', 'schedule']
+        permissions: ['dashboard', 'teams', 'schedule', 'communications']
       });
     }
     save();
@@ -4215,4 +4234,330 @@ if (currentUser()) {
 
   setInterval(renderSyncControls, 300);
   renderSyncControls();
+})();
+
+/* === Unified Phone Numbers & Scoped Coach/Admin Group SMS === */
+(function initCyoPhoneAndGroupSms() {
+  if (window.__cyoPhoneSmsV2Loaded) return;
+  window.__cyoPhoneSmsV2Loaded = true;
+
+  const SMS_BATCH_SIZE = 15;
+
+  function normalizePhone(raw) {
+    if (!raw) return '';
+    const digits = String(raw).replace(/\D/g, '');
+    if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+    if (digits.length === 11 && digits.startsWith('1')) {
+      return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+    }
+    return String(raw).trim();
+  }
+
+  function toSmsDialable(raw) {
+    const digits = String(raw || '').replace(/\D/g, '');
+    if (digits.length === 10) return '+1' + digits;
+    if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
+    return digits ? '+' + digits : '';
+  }
+
+  function getSessionUser() {
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.userId && Array.isArray(state.users)) {
+        return state.users.find(u => u.id === parsed.userId) || parsed;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  function getAllowedTeams() {
+    const allTeams = Array.isArray(state.teams) ? state.teams : [];
+    const user = getSessionUser();
+    if (!user || user.role !== 'coach') return allTeams;
+    const ids = Array.isArray(user.teamIds) ? user.teamIds : [];
+    const byId = allTeams.filter(t => ids.includes(t.id));
+    if (byId.length) return byId;
+    const cName = String(user.coachName || user.name || '').trim().toLowerCase();
+    return allTeams.filter(t => cName && String(t.coach || '').toLowerCase().includes(cName));
+  }
+
+  function getTeamRecipients(teamId) {
+    const regs = Array.isArray(state.registrations) ? state.registrations : [];
+    return regs
+      .filter(r => r && r.teamId === teamId && r.phone)
+      .map(r => ({ name: r.name || 'Athlete', phone: r.phone }));
+  }
+
+  function getAllCoachRecipients() {
+    const teams = Array.isArray(state.teams) ? state.teams : [];
+    const list = [];
+    teams.forEach(t => {
+      if (t && t.coach && t.coachPhone) {
+        list.push({ name: `${t.coach} (${t.name})`, phone: t.coachPhone });
+      }
+    });
+    return list;
+  }
+
+  function buildSmsUri(dialList) {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    return isIOS
+      ? `sms:/open?addresses=${dialList.join(',')}`
+      : `sms:${dialList.join(',')}`;
+  }
+
+  function launchGroupSms(recipients, groupTitle) {
+    const valid = [];
+    const seen = new Set();
+    recipients.forEach(r => {
+      const dial = toSmsDialable(r.phone);
+      if (dial && !seen.has(dial)) {
+        seen.add(dial);
+        valid.push({ name: r.name || 'Contact', phone: normalizePhone(r.phone), dial });
+      }
+    });
+
+    if (!valid.length) {
+      alert(`No phone numbers saved for "${groupTitle}" yet.\n\nImport a CSV with Cell Phone / Home Phone / Phone columns or edit a record to add a phone number.`);
+      return;
+    }
+
+    const isMobile = /iPad|iPhone|iPod|Android/.test(navigator.userAgent);
+    if (isMobile && valid.length <= SMS_BATCH_SIZE) {
+      window.location.href = buildSmsUri(valid.map(v => v.dial));
+      return;
+    }
+
+    const existing = document.getElementById('cyoSmsBatchModal');
+    if (existing) existing.remove();
+
+    const batches = [];
+    for (let i = 0; i < valid.length; i += SMS_BATCH_SIZE) {
+      batches.push(valid.slice(i, i + SMS_BATCH_SIZE));
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'cyoSmsBatchModal';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(17,24,39,0.6);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+
+    const batchRowsHtml = batches.map((batch, idx) => {
+      const nums = batch.map(b => b.phone).join(', ');
+      const names = batch.map(b => `${b.name}: ${b.phone}`).join(', ');
+      return `
+        <div style="padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb;margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+            <strong style="font-size:13px;color:#111827;">Batch ${idx + 1} of ${batches.length} (${batch.length} recipients)</strong>
+            <div style="display:flex;gap:6px;">
+              <a href="${buildSmsUri(batch.map(b => b.dial))}"
+                 style="text-decoration:none;padding:6px 11px;border-radius:8px;background:#15803d;color:#fff;font-weight:700;font-size:12px;">
+                💬 Open in Messages
+              </a>
+              <button type="button" class="cyo-copy-batch-btn" data-nums="${nums}"
+                 style="padding:6px 11px;border-radius:8px;border:1px solid #d1d5db;background:#fff;color:#111827;font-weight:700;font-size:12px;cursor:pointer;">
+                Copy Numbers
+              </button>
+            </div>
+          </div>
+          <div style="font-size:11px;color:#4b5563;line-height:1.45;word-break:break-word;">${names}</div>
+        </div>
+      `;
+    }).join('');
+
+    overlay.innerHTML = `
+      <div style="width:100%;max-width:540px;max-height:85vh;overflow:auto;background:#fff;border-radius:16px;padding:20px;box-shadow:0 20px 40px rgba(0,0,0,0.28);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <h3 style="margin:0;font-size:16px;color:#111827;">💬 Group Text: ${groupTitle}</h3>
+          <button type="button" id="cyoCloseSmsModal" style="border:none;background:transparent;font-size:20px;cursor:pointer;color:#6b7280;">&times;</button>
+        </div>
+        <p style="margin:0 0 14px 0;font-size:12px;color:#4b5563;">
+          Messages send directly from <strong>your phone's number</strong> via your device Messages app (batched by ${SMS_BATCH_SIZE} for carrier compatibility).
+        </p>
+        ${batchRowsHtml}
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.querySelectorAll('.cyo-copy-batch-btn').forEach(btn => {
+      btn.onclick = () => {
+        const txt = btn.getAttribute('data-nums') || '';
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(txt).catch(() => {});
+        }
+        btn.textContent = '✓ Copied';
+        setTimeout(() => { btn.textContent = 'Copy Numbers'; }, 1500);
+      };
+    });
+    document.getElementById('cyoCloseSmsModal').onclick = () => overlay.remove();
+    overlay.onclick = (ev) => { if (ev.target === overlay) overlay.remove(); };
+  }
+
+  // Persist coachPhone on teamForm submit & add Phone input to Athlete edit modals
+  document.addEventListener('submit', (e) => {
+    const form = e.target;
+    if (form && form.id === 'teamForm') {
+      const phInput = form.querySelector('input[name="coachPhone"]');
+      const teamNameInput = form.querySelector('input[name="name"]');
+      if (phInput && teamNameInput) {
+        const normPh = normalizePhone(phInput.value);
+        const tName = teamNameInput.value.trim();
+        setTimeout(() => {
+          const team = (state.teams || []).find(t => t.name === tName);
+          if (team) {
+            team.coachPhone = normPh;
+            if (typeof save === 'function') save();
+          }
+        }, 50);
+      }
+    }
+  }, true);
+
+  function wireAthleteModalPhoneField() {
+    const modal = document.querySelector('#modalBody, .modal-body, .modal');
+    if (!modal || modal.querySelector('#cyoAthletePhoneWrap')) return;
+    const emailInput = modal.querySelector('input[name="email"], input[type="email"]');
+    if (!emailInput || !emailInput.parentElement) return;
+    if (modal.querySelector('#teamForm')) return; // teamForm already has Coach Phone
+
+    const curEmail = String(emailInput.value || '').trim().toLowerCase();
+    const nameInput = modal.querySelector('input[name="name"]');
+    const curName = nameInput ? String(nameInput.value || '').trim().toLowerCase() : '';
+    const reg = (state.registrations || []).find(r =>
+      (curEmail && String(r.email || '').trim().toLowerCase() === curEmail) ||
+      (curName && String(r.name || '').trim().toLowerCase() === curName)
+    );
+
+    const wrap = document.createElement('div');
+    wrap.id = 'cyoAthletePhoneWrap';
+    wrap.className = 'field';
+    wrap.innerHTML = `<label>Phone</label><input id="cyoAthletePhoneInput" name="phone" type="tel" value="${esc(reg && reg.phone ? reg.phone : '')}" placeholder="(210) 555-0199">`;
+    emailInput.parentElement.insertAdjacentElement('afterend', wrap);
+
+    const form = modal.querySelector('form');
+    if (form) {
+      form.addEventListener('submit', () => {
+        const val = normalizePhone(document.getElementById('cyoAthletePhoneInput')?.value || '');
+        const emAfter = String(emailInput.value || '').trim().toLowerCase();
+        const nmAfter = nameInput ? String(nameInput.value || '').trim().toLowerCase() : '';
+        setTimeout(() => {
+          const target = (state.registrations || []).find(r =>
+            (emAfter && String(r.email || '').trim().toLowerCase() === emAfter) ||
+            (nmAfter && String(r.name || '').trim().toLowerCase() === nmAfter)
+          );
+          if (target) {
+            target.phone = val;
+            if (typeof save === 'function') save();
+          }
+        }, 50);
+      }, true);
+    }
+  }
+
+  function injectGroupSmsControls() {
+    if (typeof state === 'undefined' || !state) return;
+    const user = getSessionUser();
+    const isCoach = user && user.role === 'coach';
+    const scopedTeams = getAllowedTeams();
+
+    // 1. Overview & Communications Group Text Bar (Scoped for Coaches, Full for Master Admin)
+    const pageHeadEl = document.querySelector('.page-head');
+    if (pageHeadEl && (currentView === 'dashboard' || currentView === 'communications') && !document.getElementById('cyoGroupSmsBar')) {
+      const bar = document.createElement('div');
+      bar.id = 'cyoGroupSmsBar';
+      bar.style.cssText = 'margin:0 0 18px 0;padding:14px 18px;border-radius:14px;background:#fff;border:1px solid #e6dcc2;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;';
+
+      const teamOptions = scopedTeams.map(t => {
+        const count = getTeamRecipients(t.id).length;
+        return `<option value="${esc(t.id)}">${esc(t.name)} (${count} phone${count === 1 ? '' : 's'})</option>`;
+      }).join('');
+
+      if (isCoach) {
+        bar.innerHTML = `
+          <div>
+            <div style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#9a7b2c;">💬 Coach Team Group Text</div>
+            <div style="font-size:12px;color:#4b5563;">Sends from your own phone number to parents on your assigned team.</div>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+            <select id="cyoSmsTeamSelect" style="padding:7px 10px;border-radius:8px;border:1px solid #d1d5db;font-size:12px;">
+              ${teamOptions || '<option value="">No assigned teams</option>'}
+            </select>
+            <button type="button" id="cyoSmsSelectedTeam" class="btn primary" style="background:#15803d;border-color:#15803d;color:#fff;">💬 Group Text My Team</button>
+          </div>
+        `;
+      } else {
+        const coachCount = getAllCoachRecipients().length;
+        const parentCount = (state.registrations || []).filter(r => r && r.phone).length;
+        bar.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#9a7b2c;">💬 Admin Group Text</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+            <button type="button" id="cyoSmsAllCoaches" class="btn small">Text All Coaches (${coachCount})</button>
+            <button type="button" id="cyoSmsAllParents" class="btn small">Text All Parents (${parentCount})</button>
+            <select id="cyoSmsTeamSelect" style="padding:7px 10px;border-radius:8px;border:1px solid #d1d5db;font-size:12px;">
+              <option value="">Select a Team...</option>
+              ${teamOptions}
+            </select>
+            <button type="button" id="cyoSmsSelectedTeam" class="btn small primary">Group Text Team</button>
+          </div>
+        `;
+      }
+
+      pageHeadEl.insertAdjacentElement('afterend', bar);
+
+      const allCoachesBtn = document.getElementById('cyoSmsAllCoaches');
+      if (allCoachesBtn) {
+        allCoachesBtn.onclick = () => launchGroupSms(getAllCoachRecipients(), 'All Coaches');
+      }
+      const allParentsBtn = document.getElementById('cyoSmsAllParents');
+      if (allParentsBtn) {
+        allParentsBtn.onclick = () => {
+          const list = (state.registrations || []).filter(r => r && r.phone).map(r => ({ name: r.name, phone: r.phone }));
+          launchGroupSms(list, 'All Parents');
+        };
+      }
+      const teamBtn = document.getElementById('cyoSmsSelectedTeam');
+      if (teamBtn) {
+        teamBtn.onclick = () => {
+          const tid = document.getElementById('cyoSmsTeamSelect')?.value;
+          if (!tid) { alert('Select a team first.'); return; }
+          const team = (state.teams || []).find(t => t.id === tid);
+          launchGroupSms(getTeamRecipients(tid), team ? team.name : 'Team');
+        };
+      }
+    }
+
+    // 2. Team League Tracker Workspace on Teams Tab (right next to Fundraisers ($0))
+    const fundraisersBtn = Array.from(document.querySelectorAll('button'))
+      .find(b => /^Fundraisers\s*\(/i.test((b.textContent || '').trim()) && b.offsetParent !== null);
+
+    if (fundraisersBtn && fundraisersBtn.parentElement && !document.getElementById('cyoWorkspaceGroupSmsBtn')) {
+      const tid = activeWorkspaceTeamId || (scopedTeams[0] && scopedTeams[0].id) || '';
+      const team = (state.teams || []).find(t => t.id === tid);
+      const count = tid ? getTeamRecipients(tid).length : 0;
+
+      const wsBtn = document.createElement('button');
+      wsBtn.id = 'cyoWorkspaceGroupSmsBtn';
+      wsBtn.type = 'button';
+      wsBtn.className = 'btn';
+      wsBtn.style.cssText = 'background:#15803d;color:#fff;border-color:#15803d;font-weight:700;';
+      wsBtn.textContent = `💬 Group Text Team (${count})`;
+      wsBtn.onclick = () => {
+        const curTid = activeWorkspaceTeamId || (scopedTeams[0] && scopedTeams[0].id) || '';
+        const curTeam = (state.teams || []).find(t => t.id === curTid);
+        launchGroupSms(getTeamRecipients(curTid), curTeam ? curTeam.name : 'Team');
+      };
+      fundraisersBtn.parentElement.appendChild(wsBtn);
+    }
+  }
+
+  setInterval(() => {
+    try {
+      wireAthleteModalPhoneField();
+      injectGroupSmsControls();
+    } catch (_) {}
+  }, 250);
 })();
